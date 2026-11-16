@@ -17,7 +17,9 @@ def main() -> None:
     parser.add_argument("--max-file-bytes", type=int, default=1_000_000)
     parser.add_argument("--max-files", type=int, default=10_000)
     parser.add_argument("--structure", action="store_true", help="Extract Python definitions and imports")
-    parser.add_argument("--search", metavar="QUERY", help="Search names, imports, and file paths")
+    parser.add_argument("--search", metavar="QUERY", help="Search source code, names, imports, and file paths")
+    parser.add_argument("--max-source-bytes", type=int, default=20_000_000,
+                        help="Total source bytes retained for search (default 20 MB)")
     parser.add_argument("--limit", type=int, default=10, help="Maximum search results (1-100; default 10)")
     args = parser.parse_args()
     if bool(args.path) == bool(args.github):
@@ -28,7 +30,8 @@ def main() -> None:
         parser.error("Search query must contain a letter or number and be at most 500 characters")
     try:
         options = dict(max_file_bytes=args.max_file_bytes, max_files=args.max_files,
-                       include_structure=args.structure or args.search is not None)
+                       include_structure=args.structure or args.search is not None,
+                       include_source=args.search is not None, max_source_bytes=args.max_source_bytes)
         if args.github:
             report = analyze_github(
                 args.github, **options, max_download_bytes=args.max_download_bytes,

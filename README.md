@@ -93,17 +93,19 @@ hard CPU/memory limit; stricter process isolation is needed before exposing
 imports as a public service. The report identifies the archive root but
 does not yet resolve or verify a full commit SHA.
 
-## Search repository metadata
+## Search code and repository metadata
 
 ```powershell
 python -m codebase_intel . --search "scan_repository" --limit 5
 python -m codebase_intel . --search "github url"
+python -m codebase_intel . --search "monotonic deadline" --limit 1
 python -m codebase_intel --github https://github.com/AyushPal0/Jason --search "parse python"
 ```
 
-Search automatically enables Python parsing. It returns ranked results rather
+Search automatically enables Python parsing and source capture. It returns ranked results rather
 than the complete inventory. Each result includes a path, kind, name, source
-line range, matched tokens, and a score. Empty files have null line ranges.
+line range, matched tokens, a score, a source hash, and a bounded code snippet.
+Empty files have null line ranges and snippets.
 Repository metadata is preserved for GitHub imports. Source ranges refer to
 the scanned snapshot; local edits or later GitHub commits can move the lines.
 
@@ -115,32 +117,71 @@ of every record for every query. Identifier splitting lets `login user` match
 `httpclient` also matches `HTTPClient`.
 
 Every query token must match within the same record, possibly across its name,
-enclosing scope, and file path. Ranking adds these weights per matching token:
+enclosing scope, file path, and source text. Symbol records include their full
+source range (including nested definitions), while file records cover the
+whole file. Ranking adds these weights per matching token:
 
 | Field | Weight |
 | --- | ---: |
 | Symbol name or import label | 4 |
 | Qualified symbol name or enclosing import scope | 2 |
 | File path | 1 |
+| Source text in the record's range | 1 |
 
 An exact name match adds 10 points. Fields can contribute together; repeated
-query words do not increase scores. Ties use path, source line, kind, and name
-for stable ordering. Scores are ranking heuristics, not confidence estimates.
+query words do not increase scores. Ties prefer shorter source ranges, then
+functions/imports, classes, and files, followed by path, source line, kind,
+and name for stable ordering. This helps return the smallest relevant piece
+of code before an enclosing class or file. Scores are ranking heuristics,
+not confidence estimates.
 The default is 10 results; `--limit` accepts 1–100. Queries must contain a
 letter or number and be no longer than 500 characters. No matches returns an
 empty results list successfully.
 
-`coverage` reports parser errors, Python files without structure, and whether
-the scanner's file limit was reached. Non-Python files are searchable by path
-only. Search covers names, imports, scopes, and paths; function bodies,
-comments, docstrings, semantic meaning, fuzzy matching, and natural-language
-question answering are not indexed yet. Each command scans again and rebuilds
-the index; GitHub searches download a fresh snapshot. No database or AI API is
-needed for this baseline.
+`coverage` reports parser errors, Python files without structure, files with
+and without captured source, and whether the scanner's file limit was reached.
+All included languages support file-level text search. Python additionally
+supports definition and import records. Invalid Python still supports text
+search through its file record. Bodies, comments, and docstrings are searched
+as literal text; their presence does not prove a behavior executes at runtime.
+Semantic meaning, fuzzy matching, and natural-language question answering are
+not implemented yet. Each command scans again and rebuilds the index; GitHub
+searches download a fresh snapshot. No database or AI API is needed.
+
+### Source snippets and capture limits
+
+The scanner optionally retains the same decoded source it already reads.
+Ordinary inventory and `--structure` commands do not retain or print full
+source. Search enables capture automatically, with a default 20 MB aggregate
+file-byte budget. Set `--max-source-bytes` to change it. Per-file size limits,
+filename exclusions, and binary/encoding checks still apply before capture.
+Files that do not fit the remaining capture budget stay searchable through
+their metadata; their body text is absent and snippets/hashes are null. Later
+smaller files may still fit. The coverage counts expose this partial search.
+This byte budget limits captured file bytes, not total index memory usage.
+
+Each `snippet` has its own inclusive source range and numbered `lines`.
+The selected contiguous window maximizes distinct query words visible in up
+to 12 lines. Text is clipped to 160 characters per line and at most 2,000
+characters overall, excluding JSON metadata. Per-line and overall `truncated`
+flags indicate clipping or omitted source lines. `snippet.matched_tokens`
+lists only words visible in the displayed text. A record's `matched_tokens`
+can be broader: terms may occur far apart, in metadata, or beyond a clipped
+line. An excerpt is therefore not guaranteed to display every query word.
+
+Snippets are built from captured text without reopening files. They remain
+consistent with the scanned snapshot after local edits or temporary GitHub
+files are removed. `source_sha256` identifies the original raw file bytes,
+including a UTF-8 BOM or CRLF endings if present; displayed text omits the BOM
+and splits physical CR/LF lines. The hash is not a Git commit identifier and
+does not independently verify the repository or a snippet's meaning.
 
 The search tests include eight fixed relevance queries against a small
 synthetic repository, checking the expected first result. This is a regression
 baseline for future ranking work, not a production retrieval benchmark.
+Additional tests cover body-only matches, comments/docstrings, clipping,
+source budget gaps, physical line numbers, exclusions, and snapshot evidence
+after local edits or GitHub temporary-directory cleanup.
 
 ## Run checks
 

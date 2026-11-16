@@ -135,11 +135,12 @@ def extract_archive(
 def analyze_github(
     url: str, *, include_structure: bool = False, max_file_bytes: int = 1_000_000,
     max_files: int = 10_000, max_download_bytes: int = 25_000_000, progress=None,
+    include_source: bool = False, max_source_bytes: int = 20_000_000,
 ) -> dict:
     """Import, scan, and automatically remove the temporary source snapshot."""
     owner, repo = parse_github_url(url)
-    if min(max_file_bytes, max_files, max_download_bytes) < 1:
-        raise ImportFailure("File size, file count, and download limits must be positive")
+    if min(max_file_bytes, max_files, max_download_bytes, max_source_bytes) < 1:
+        raise ImportFailure("File size, file count, download, and source capture limits must be positive")
 
     def notify(stage: str) -> None:
         if progress is not None:
@@ -157,6 +158,7 @@ def analyze_github(
             report = scan_repository(
                 root, include_structure=include_structure,
                 max_file_bytes=max_file_bytes, max_files=max_files,
+                include_source=include_source, max_source_bytes=max_source_bytes,
             )
             report["repository"] = {
                 "url": f"https://github.com/{owner}/{repo}",

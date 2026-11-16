@@ -1,10 +1,12 @@
 """Read source files without importing or executing repository code."""
 
+import hashlib
 import os
 from collections import Counter
 from pathlib import Path
 
 from .parser import parse_python
+from .source import source_lines
 
 
 LANGUAGES = {
@@ -26,6 +28,7 @@ SECRET_NAMES = {"credentials", "credentials.json", "secrets.json", "id_rsa", "id
 def scan_repository(
     root: str | Path, *, max_file_bytes: int = 1_000_000, max_files: int = 10_000,
     include_structure: bool = False,
+    include_source: bool = False, max_source_bytes: int = 20_000_000,
 ) -> dict:
     """Return a deterministic inventory of supported UTF-8 source files.
 
@@ -36,12 +39,14 @@ def scan_repository(
     root = Path(root).resolve(strict=True)
     if not root.is_dir():
         raise ValueError("Repository path must be a directory")
-    if max_file_bytes < 1 or max_files < 1:
-        raise ValueError("File size and count limits must be positive")
+    if max_file_bytes < 1 or max_files < 1 or max_source_bytes < 1:
+        raise ValueError("File size, count, and source capture limits must be positive")
 
     files = []
     skipped = Counter()
     limit_reached = False
+    captured_bytes = 0
+    files_without_source = 0
 
     def is_link(path: Path) -> bool:
         return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
@@ -98,16 +103,23 @@ def scan_repository(
                 "path": path.relative_to(root).as_posix(),
                 "language": language,
                 "size_bytes": len(content),
-                "line_count": len(decoded.splitlines()),
+                "line_count": len(source_lines(decoded)),
             }
             if include_structure and language == "Python":
                 record["structure"] = parse_python(decoded, filename=record["path"])
+            if include_source:
+                if captured_bytes + len(content) <= max_source_bytes:
+                    record["source"] = decoded
+                    record["source_sha256"] = hashlib.sha256(content).hexdigest()
+                    captured_bytes += len(content)
+                else:
+                    files_without_source += 1
             files.append(record)
         if limit_reached:
             break
 
     files.sort(key=lambda item: item["path"])
-    return {
+    report = {
         "files": files,
         "summary": {
             "file_count": len(files),
@@ -118,3 +130,9 @@ def scan_repository(
             "file_limit_reached": limit_reached,
         },
     }
+    if include_source:
+        report["summary"]["source_capture"] = {
+            "max_bytes": max_source_bytes, "captured_bytes": captured_bytes,
+            "files_without_source": files_without_source,
+        }
+    return report

@@ -1,7 +1,51 @@
-"""Small, deterministic lexical index over repository metadata."""
+"""Deterministic lexical search with bounded evidence from captured source."""
 
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
+
+from .source import source_lines
+
+
+def make_snippet(lines: list[str], start: int | None, end: int | None, tokens: set[str]) -> dict | None:
+    """Choose a contiguous 12-line window with the most distinct query terms.
+
+    Text is clipped to 160 characters per line and 2,000 overall. Explicit
+    clipping flags distinguish excerpts from complete source lines.
+    """
+    if start is None or end is None or not lines:
+        return None
+    first, last = start - 1, min(end, len(lines))
+    width = min(12, last - first)
+    if width <= 0:
+        return None
+    # Score only text that can actually be shown, not the hidden suffix of a long line.
+    line_terms = [tokenize(line[:160]) & tokens for line in lines[first:last]]
+    counts = Counter(term for terms in line_terms[:width] for term in terms)
+    best_offset, best_score = 0, len(counts)
+    for offset in range(1, len(line_terms) - width + 1):
+        for term in line_terms[offset - 1]:
+            counts[term] -= 1
+            if counts[term] == 0:
+                del counts[term]
+        counts.update(line_terms[offset + width - 1])
+        if len(counts) > best_score:
+            best_offset, best_score = offset, len(counts)
+    selected = []
+    remaining = 2_000
+    for index in range(first + best_offset, first + best_offset + width):
+        if remaining <= 0:
+            break
+        text = lines[index][:min(160, remaining)]
+        selected.append({"line_number": index + 1, "text": text, "truncated": len(text) < len(lines[index])})
+        remaining -= len(text)
+    visible_tokens = tokenize("\n".join(line["text"] for line in selected))
+    return {
+        "start_line": selected[0]["line_number"], "end_line": selected[-1]["line_number"],
+        "lines": selected,
+        "truncated": (selected[0]["line_number"] > start or selected[-1]["line_number"] < end
+                      or any(line["truncated"] for line in selected)),
+        "matched_tokens": sorted(visible_tokens & tokens),
+    }
 
 
 def tokenize(text: str) -> set[str]:
@@ -27,11 +71,14 @@ class LexicalIndex:
     """Map each token to documents and weighted fields containing that token.
 
     Queries use AND matching: every token must occur in a document. Repeated
-    words do not boost scores. No source text or filesystem reads are needed.
+    words do not boost scores. Captured source is optional; the index never
+    reopens files, including when building result snippets.
     """
 
     def __init__(self, report: dict) -> None:
         self.documents: list[dict] = []
+        self.sources: dict[str, list[str]] = {}
+        self.source_hashes: dict[str, str] = {}
         self.postings: dict[str, dict[int, int]] = defaultdict(dict)
         self.coverage = {
             "file_count": len(report["files"]),
@@ -39,9 +86,18 @@ class LexicalIndex:
             "python_files_without_structure": 0,
             "parse_errors": [],
             "file_limit_reached": report["summary"]["file_limit_reached"],
+            "files_with_source": 0,
+            "files_without_source": 0,
         }
         for file in sorted(report["files"], key=lambda item: item["path"]):
             path = file["path"]
+            if "source" in file:
+                self.sources[path] = source_lines(file["source"])
+                self.coverage["files_with_source"] += 1
+                if "source_sha256" in file:
+                    self.source_hashes[path] = file["source_sha256"]
+            else:
+                self.coverage["files_without_source"] += 1
             self.add_document(
                 {"path": path, "kind": "file", "name": path,
                  "start_line": 1 if file["line_count"] else None,
@@ -82,6 +138,12 @@ class LexicalIndex:
             for token in tokenize(value):
                 postings = self.postings[token]
                 postings[document_id] = postings.get(document_id, 0) + weight
+        lines = self.sources.get(document["path"])
+        if lines is not None and document["start_line"] is not None:
+            source = "\n".join(lines[document["start_line"] - 1:document["end_line"]])
+            for token in tokenize(source):
+                postings = self.postings[token]
+                postings[document_id] = postings.get(document_id, 0) + 1
 
     def search(self, query: str, *, limit: int = 10) -> dict:
         if not 1 <= limit <= 100:
@@ -109,9 +171,17 @@ class LexicalIndex:
                 "score": score, "matched_tokens": sorted(tokens),
             })
         results.sort(key=lambda item: (
-            -item["score"], item["path"], item["start_line"] or 0, item["kind"], item["name"],
+            -item["score"], (item["end_line"] or 0) - (item["start_line"] or 0),
+            {"function": 0, "import": 0, "class": 1, "file": 2}[item["kind"]],
+            item["path"], item["start_line"] or 0, item["kind"], item["name"],
         ))
+        selected = results[:limit]
+        for result in selected:
+            lines = self.sources.get(result["path"])
+            result["snippet"] = (make_snippet(lines, result["start_line"], result["end_line"], tokens)
+                                 if lines is not None else None)
+            result["source_sha256"] = self.source_hashes.get(result["path"])
         return {
-            "query": query, "total_matches": len(results), "results": results[:limit],
+            "query": query, "total_matches": len(results), "results": selected,
             "coverage": self.coverage,
         }
