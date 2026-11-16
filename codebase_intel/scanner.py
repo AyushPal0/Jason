@@ -4,6 +4,8 @@ import os
 from collections import Counter
 from pathlib import Path
 
+from .parser import parse_python
+
 
 LANGUAGES = {
     ".py": "Python", ".js": "JavaScript", ".jsx": "JavaScript",
@@ -22,7 +24,8 @@ SECRET_NAMES = {"credentials", "credentials.json", "secrets.json", "id_rsa", "id
 
 
 def scan_repository(
-    root: str | Path, *, max_file_bytes: int = 1_000_000, max_files: int = 10_000
+    root: str | Path, *, max_file_bytes: int = 1_000_000, max_files: int = 10_000,
+    include_structure: bool = False,
 ) -> dict:
     """Return a deterministic inventory of supported UTF-8 source files.
 
@@ -91,12 +94,15 @@ def scan_repository(
             except OSError:
                 skipped["unreadable_file"] += 1
                 continue
-            files.append({
+            record = {
                 "path": path.relative_to(root).as_posix(),
                 "language": language,
                 "size_bytes": len(content),
                 "line_count": len(decoded.splitlines()),
-            })
+            }
+            if include_structure and language == "Python":
+                record["structure"] = parse_python(decoded, filename=record["path"])
+            files.append(record)
         if limit_reached:
             break
 

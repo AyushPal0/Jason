@@ -11,7 +11,7 @@ Build one small, working feature at a time. Explain its purpose, implementation,
 ## Proposed stack
 
 - Python and FastAPI for repository analysis and the API.
-- Tree-sitter for syntax parsing and symbol extraction.
+- Python's built-in AST for initial Python parsing; evaluate Tree-sitter when adding other languages.
 - PostgreSQL and pgvector for persistent metadata and vector retrieval.
 - React and TypeScript for the interface.
 - Docker Compose for local services once persistence is needed.
@@ -20,8 +20,8 @@ Start with a modular application. Introduce queues and additional services when 
 
 ## Milestones
 
-1. **Local repository inventory:** accept a local folder, ignore generated and sensitive files, and report source files, languages, sizes, and line counts. No AI service is required.
-2. **Code structure:** extract Python definitions and imports, preserving file paths and source line ranges.
+1. **Local repository inventory (implemented):** accept a local folder, ignore generated and sensitive files, and report source files, languages, sizes, and line counts. No AI service is required.
+2. **Code structure (implemented):** extract Python definitions and imports, preserving file paths and source line ranges. Use `--structure` to include this analysis in the inventory.
 3. **Public GitHub import:** validate repository URLs, fetch source with resource limits, and track analysis status. Never execute imported code during ingestion.
 4. **Search:** implement lexical retrieval first, then embeddings and hybrid retrieval. Evaluate against a small collection of repository questions.
 5. **Grounded answers:** answer questions with source citations, show supporting excerpts, and say when evidence is insufficient.

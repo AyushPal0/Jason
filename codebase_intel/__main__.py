@@ -11,10 +11,12 @@ def main() -> None:
     parser.add_argument("path", help="Repository folder to scan")
     parser.add_argument("--max-file-bytes", type=int, default=1_000_000)
     parser.add_argument("--max-files", type=int, default=10_000)
+    parser.add_argument("--structure", action="store_true", help="Extract Python definitions and imports")
     args = parser.parse_args()
     try:
         report = scan_repository(
-            args.path, max_file_bytes=args.max_file_bytes, max_files=args.max_files
+            args.path, max_file_bytes=args.max_file_bytes, max_files=args.max_files,
+            include_structure=args.structure,
         )
     except (OSError, ValueError) as error:
         parser.error(str(error))
