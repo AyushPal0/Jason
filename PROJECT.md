@@ -22,7 +22,7 @@ Start with a modular application. Introduce queues and additional services when 
 
 1. **Local repository inventory (implemented):** accept a local folder, ignore generated and sensitive files, and report source files, languages, sizes, and line counts. No AI service is required.
 2. **Code structure (implemented):** extract Python definitions and imports, preserving file paths and source line ranges. Use `--structure` to include this analysis in the inventory.
-3. **Public GitHub import:** validate repository URLs, fetch source with resource limits, and track analysis status. Never execute imported code during ingestion.
+3. **Public GitHub import (implemented for CLI):** validate repository URLs, download default-branch source snapshots with size/count limits, and report synchronous progress. Never execute imported code during ingestion. Persistent job status and verified commit identifiers remain future work.
 4. **Search:** implement lexical retrieval first, then embeddings and hybrid retrieval. Evaluate against a small collection of repository questions.
 5. **Grounded answers:** answer questions with source citations, show supporting excerpts, and say when evidence is insufficient.
 6. **Interface:** provide import status, repository browsing, search, and question answering.

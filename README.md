@@ -54,6 +54,45 @@ the inventory but do not receive structure information yet. This is not a
 call graph or a sandbox for hostile inputs. Tree-sitter remains a future
 option for extending parsing across languages.
 
+## Import a public GitHub repository
+
+```powershell
+python -m codebase_intel --github https://github.com/AyushPal0/Jason --structure
+```
+
+Use a repository's HTTPS URL, optionally ending in `.git`. Branch/file URLs,
+SSH URLs, other hosts, query strings, and embedded credentials are rejected.
+Supply either a local folder or `--github`, not both.
+
+The importer requests a ZIP snapshot of the default branch using GitHub's
+[repository archive API](https://docs.github.com/en/rest/repos/contents#download-a-repository-archive-zip).
+It makes unauthenticated requests for public repositories; it does not use
+your Git credentials or run Git hooks, install dependencies, or execute code.
+Private repositories, empty repositories, and missing repositories are not
+supported. Anonymous GitHub API rate limits apply.
+
+Progress (`downloading`, `extracting`, `analyzing`, `complete`) is printed to
+stderr. The final report goes to stdout and includes repository metadata.
+Errors exit nonzero with a message on stderr. Status is synchronous and is
+not persisted as a background job. The snapshot and extracted files are
+removed after success or failure.
+
+Default import limits:
+
+- 25 MB downloaded (`--max-download-bytes` can change this).
+- 20,000 archive entries, 100 MB total extracted data, and 10 MB per extracted file.
+- 15-second network operation timeout and a 60-second download budget checked between reads.
+- Existing scanner limits still apply: 1 MB per analyzed file and 10,000 included files.
+
+The extractor rejects traversal paths, nonportable Windows filenames,
+multiple archive roots, and case-colliding paths. Symlinks and special files
+are skipped. Extraction uses a fresh temporary directory and never restores
+archive permissions. Large repositories can exceed these limits. Submodule
+contents and Git history are not fetched. This CLI is not a sandbox or a
+hard CPU/memory limit; stricter process isolation is needed before exposing
+imports as a public service. The report identifies the archive root but
+does not yet resolve or verify a full commit SHA.
+
 ## Run checks
 
 ```powershell
