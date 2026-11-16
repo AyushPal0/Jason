@@ -93,6 +93,55 @@ hard CPU/memory limit; stricter process isolation is needed before exposing
 imports as a public service. The report identifies the archive root but
 does not yet resolve or verify a full commit SHA.
 
+## Search repository metadata
+
+```powershell
+python -m codebase_intel . --search "scan_repository" --limit 5
+python -m codebase_intel . --search "github url"
+python -m codebase_intel --github https://github.com/AyushPal0/Jason --search "parse python"
+```
+
+Search automatically enables Python parsing. It returns ranked results rather
+than the complete inventory. Each result includes a path, kind, name, source
+line range, matched tokens, and a score. Empty files have null line ranges.
+Repository metadata is preserved for GitHub imports. Source ranges refer to
+the scanned snapshot; local edits or later GitHub commits can move the lines.
+
+The implementation builds an in-memory **inverted index**: each token points
+to the file, definition, and import records containing it. For example, `login`
+points directly to records containing that token instead of requiring a scan
+of every record for every query. Identifier splitting lets `login user` match
+`login_user`, and `http client` match `HTTPClient`. Whole words are retained so
+`httpclient` also matches `HTTPClient`.
+
+Every query token must match within the same record, possibly across its name,
+enclosing scope, and file path. Ranking adds these weights per matching token:
+
+| Field | Weight |
+| --- | ---: |
+| Symbol name or import label | 4 |
+| Qualified symbol name or enclosing import scope | 2 |
+| File path | 1 |
+
+An exact name match adds 10 points. Fields can contribute together; repeated
+query words do not increase scores. Ties use path, source line, kind, and name
+for stable ordering. Scores are ranking heuristics, not confidence estimates.
+The default is 10 results; `--limit` accepts 1–100. Queries must contain a
+letter or number and be no longer than 500 characters. No matches returns an
+empty results list successfully.
+
+`coverage` reports parser errors, Python files without structure, and whether
+the scanner's file limit was reached. Non-Python files are searchable by path
+only. Search covers names, imports, scopes, and paths; function bodies,
+comments, docstrings, semantic meaning, fuzzy matching, and natural-language
+question answering are not indexed yet. Each command scans again and rebuilds
+the index; GitHub searches download a fresh snapshot. No database or AI API is
+needed for this baseline.
+
+The search tests include eight fixed relevance queries against a small
+synthetic repository, checking the expected first result. This is a regression
+baseline for future ranking work, not a production retrieval benchmark.
+
 ## Run checks
 
 ```powershell
